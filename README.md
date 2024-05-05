@@ -20,112 +20,113 @@ Execute the C Program for the desired output.
 
 # PROGRAM:
 
-## Write a C program that implements a producer-consumer system with two processes using Semaphores.
-// C Program for Message Queue (Writer Process)
-```
-#include <stdio.h> 
-#include <sys/ipc.h> 
-#include <sys/msg.h> 
-
-// structure for message queue 
-struct mesg_buffer { 
-	long mesg_type; 
-	char mesg_text[100]; 
-} message; 
-int main() 
-{ 	key_t key; 
-	int msgid; 
-// ftok to generate unique key 
-	key = ftok("progfile", 65); 
-	// msgget creates a message queue 
-	// and returns identifier 
-	msgid = msgget(key, 0666 | IPC_CREAT); 
-	message.mesg_type = 1; 
-	printf("Write Data : "); 
-	gets(message.mesg_text); 
-	// msgsnd to send message 
-	msgsnd(msgid, &message, sizeof(message), 0); 
-	// display the message 
-	printf("Data send is : %s \n", message.mesg_text); 
-	return 0; 
-}
-
-```
-// C Program for Message Queue (Reader Process)
-
 ```
 
-#include <stdio.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-
-// structure for message queue
-struct mesg_buffer {
-	long mesg_type;
-	char mesg_text[100];
-} message;
-int main()
+/*
+ * sem-producer-consumer.c  - demonstrates a basic producer-consumer
+ *                            implementation.
+ */
+#include <stdio.h>	 /* standard I/O routines.              */
+#include <stdlib.h>      /* rand() and srand() functions        */
+#include <unistd.h>	 /* fork(), etc.                        */
+#include <time.h>	 /* nanosleep(), etc.                   */
+#include <sys/types.h>   /* various type definitions.           */
+#include <sys/ipc.h>     /* general SysV IPC structures         */
+#include <sys/sem.h>	 /* semaphore functions and structs.    */
+#define NUM_LOOPS	20	 /* number of loops to perform. */
+#if defined(__GNU_LIBRARY__) && !defined(_SEM_SEMUN_UNDEFINED)
+/* union semun is defined by including <sys/sem.h> */
+#else
+/* according to X/OPEN we have to define it ourselves */
+union semun {
+        int val;                    /* value for SETVAL */
+        struct semid_ds *buf;       /* buffer for IPC_STAT, IPC_SET */
+        unsigned short int *array;  /* array for GETALL, SETALL */
+        struct seminfo *__buf;      /* buffer for IPC_INFO */
+};
+#endif
+int main(int argc, char* argv[])
 {
-	key_t key;
-	int msgid;
-// ftok to generate unique key
-	key = ftok("progfile", 65);
-	// msgget creates a message queue
-	// and returns identifier
-	msgid = msgget(key, 0666 | IPC_CREAT);
-	// msgrcv to receive message
-	msgrcv(msgid, &message, sizeof(message), 1, 0);
-	// display the message
-	printf("Data Received is : %s \n",
-			message.mesg_text);
+    int sem_set_id;	      /* ID of the semaphore set.       */
+    union semun sem_val;      /* semaphore value, for semctl(). */
+    int child_pid;	      /* PID of our child process.      */
+    int i;		      /* counter for loop operation.    */
+    struct sembuf sem_op;     /* structure for semaphore ops.   */
+    int rc;		      /* return value of system calls.  */
+    struct timespec delay;    /* used for wasting time.         */
+	/* create a private semaphore set with one semaphore in it, */
+    /* with access only to the owner.                           */
+    sem_set_id = semget(IPC_PRIVATE, 1, 0600);
+    if (sem_set_id == -1) {
+	   perror("main: semget");
+	   exit(1);
+    }
+    printf("semaphore set created, semaphore set id '%d'.\n", sem_set_id);
+    /* intialize the first (and single) semaphore in our set to '0'. */
+    sem_val.val = 0;
+    rc = semctl(sem_set_id, 0, SETVAL, sem_val);
+    /* fork-off a child process, and start a producer/consumer job. */
+    child_pid = fork();
+    switch (child_pid) {
+	  case -1:	/* fork() failed */
+	    perror("fork");
+	    exit(1);
+	 case 0:		/* child process here */
+	    for (i=0; i<NUM_LOOPS; i++) {
+		/* block on the semaphore, unless it's value is non-negative. */
+		sem_op.sem_num = 0;
+		sem_op.sem_op = -1;
+		sem_op.sem_flg = 0;
+		semop(sem_set_id, &sem_op, 1);
+		printf("consumer: '%d'\n", i);
+		fflush(stdout);
+	    }
+	    break;
+		default:	/* parent process here */
+			for (i=0; i<NUM_LOOPS; i++) {
+			printf("producer: '%d'\n", i);
+			fflush(stdout);
+			/* increase the value of the semaphore by 1. */
+			sem_op.sem_num = 0;
+	sem_op.sem_op = 1;
+			sem_op.sem_flg = 0;
+			semop(sem_set_id, &sem_op, 1);
+		/* pause execution for a little bit, to allow the */
+		/* child process to run and handle some requests. */
+		/* this is done about 25% of the time.            */
+		if (rand() > 3*(RAND_MAX/4)) {
+	    	    delay.tv_sec = 0;
+	    	    delay.tv_nsec = 10;
+	    	    //nanosleep(&delay, NULL);
+		                      sleep(10); }
+			
+if(NUM_LOOPS>=10)    {
+	    semctl(sem_set_id, 0, IPC_RMID, sem_val) ; // Remove the sem_set_id
+	    
+	    break;
 
-	// to destroy the message queue
-	msgctl(msgid, IPC_RMID, NULL);
-	return 0;
+		}
+	}}
+    
+    return 0;
 }
+	
+
 
 ```
-
-
 
 ## OUTPUT
+$ gcc -o semaphore.o semaphore.c $ ./semaphore.o
 
-```
+![Screenshot 2024-05-05 143327](https://github.com/Mohamedasils/Linux-IPC-Semaphores/assets/144870445/dfb6b358-5aa3-4bac-9c6f-6d8b4c49aaac)
 
-gcc -o writer.o writer.c
-$ ./writer.o 
-Write Data : Helloworld
-Data send is : Helloworld
 
-```
 
-```
-gcc -o reader.o reader.c
-$ ./reader.o 
-Data Received is : Helloworld
-
-```
-
-```
 $ ipcs
------- Message Queues --------
-key        msqid      owner      perms      used-bytes   messages    
-0xffffffff 720896     root    666        560          5           
 
------- Shared Memory Segments --------
-key        shmid      owner      perms      bytes      nattch     status      
-0x00000000 262144     root       600        33554432   2          dest         
-0x00000000 360449     root       600        524288     2          dest         
-0x00000000 688130     root       600        524288     2          dest         
-0x00000000 622595     root       600        524288     2          dest         
-0x00000000 786436     root       600        524288     2          dest         
-0x00000000 655365     root       600        524288     2          dest         
-0x00000000 983046     root       600        524288     2          dest         
 
------- Semaphore Arrays --------
-key        semid      owner      perms      nsems
+![Screenshot 2024-05-05 143340](https://github.com/Mohamedasils/Linux-IPC-Semaphores/assets/144870445/0c495f0b-0402-45e8-92c0-6edb8c1acddf)
 
-```
 
 
 
